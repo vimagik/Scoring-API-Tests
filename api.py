@@ -39,8 +39,15 @@ GENDERS = {
 }
 
 
+class ValidationError(Exception):
+
+    def __init__(self, text):
+        self.txt = text
+
+
 class Validator:
     """Базовый класс для проверки данных"""
+
     def __init__(self, required, nullable):
         self.required = required
         self.nullable = nullable
@@ -52,10 +59,9 @@ class Validator:
     def __get__(self, instance, owner):
         return self.data[instance]
 
-    def __set__(self, instance, value):
+    def validate(self, value):
         if not self.nullable and value is None:
-            raise ValueError(f"{self.name} can`t be None")
-        self.data[instance] = value
+            raise ValidationError(f"{self.name} can`t be None")
 
 
 class CharField(Validator):
@@ -63,8 +69,9 @@ class CharField(Validator):
 
     def __set__(self, instance, value):
         if value is not None and not isinstance(value, str):
-            raise ValueError(f"{self.name} must be Str")
-        super().__set__(instance, value)
+            raise ValidationError(f"{self.name} must be Str")
+        self.validate(value)
+        self.data[instance] = value
 
 
 class ArgumentsField(Validator):
@@ -72,8 +79,9 @@ class ArgumentsField(Validator):
 
     def __set__(self, instance, value):
         if value is not None and not isinstance(value, dict):
-            raise ValueError(f"{self.name} must be dict")
-        super().__set__(instance, value)
+            raise ValidationError(f"{self.name} must be dict")
+        self.validate(value)
+        self.data[instance] = value
 
 
 class EmailField(CharField):
@@ -81,8 +89,9 @@ class EmailField(CharField):
 
     def __set__(self, instance, value):
         if isinstance(value, str) and '@' not in value:
-            raise ValueError(f"{self.name} must have @")
-        super().__set__(instance, value)
+            raise ValidationError(f"{self.name} must have @")
+        self.validate(value)
+        self.data[instance] = value
 
 
 class PhoneField(Validator):
@@ -91,10 +100,11 @@ class PhoneField(Validator):
     def __set__(self, instance, value):
         if value is not None:
             if len(str(value)) != 11:
-                raise ValueError(f"{self.name} must have 11 symbols")
+                raise ValidationError(f"{self.name} must have 11 symbols")
             if str(value)[0] != '7':
-                raise ValueError(f"{self.name} must have 7 in the start of value")
-        super().__set__(instance, value)
+                raise ValidationError(f"{self.name} must have 7 in the start of value")
+        self.validate(value)
+        self.data[instance] = value
 
 
 class DateField(Validator):
@@ -103,7 +113,8 @@ class DateField(Validator):
     def __set__(self, instance, value):
         if value is not None:
             value = datetime.datetime.strptime(value, '%d.%m.%Y')
-        super().__set__(instance, value)
+        self.validate(value)
+        self.data[instance] = value
 
 
 class BirthDayField(Validator):
@@ -114,8 +125,9 @@ class BirthDayField(Validator):
         if value is not None:
             value = datetime.datetime.strptime(value, '%d.%m.%Y')
             if self.is_less_than(value):
-                raise ValueError(f"{self.name} is less then {self.age_filter}")
-        super().__set__(instance, value)
+                raise ValidationError(f"{self.name} is less then {self.age_filter}")
+        self.validate(value)
+        self.data[instance] = value
 
     def is_less_than(self, value):
         from_date = datetime.datetime.now()
@@ -128,18 +140,17 @@ class BirthDayField(Validator):
 
 class GenderField(Validator):
     """Валидация пола"""
-
     def __set__(self, instance, value):
         if value is not None and not isinstance(value, int):
-            raise ValueError(f"{self.name} must be int")
+            raise ValidationError(f"{self.name} must be int")
         if value not in (0, 1, 2, None):
-            raise ValueError(f"{self.name} must be 0, 1, 2 or None")
-        super().__set__(instance, value)
+            raise ValidationError(f"{self.name} must be 0, 1, 2 or None")
+        self.validate(value)
+        self.data[instance] = value
 
 
 class ClientIDsField:
     """Валидация id клиентов"""
-
     def __init__(self, required):
         self.required = required
         self.data = WeakKeyDictionary()
@@ -149,11 +160,11 @@ class ClientIDsField:
 
     def __set__(self, instance, value):
         if value is None:
-            raise ValueError("Client Id can't be None")
+            raise ValidationError("Client Id can't be None")
         if not isinstance(value, list):
-            raise ValueError("Client Id must be List")
+            raise ValidationError("Client Id must be List")
         if set(isinstance(i, int) for i in value) != {True}:
-            raise ValueError("Client Id can have digit only")
+            raise ValidationError("Client Id can have digit only")
         self.data[instance] = value
 
 
@@ -171,7 +182,17 @@ class ClientsInterestsRequest:
             self.error = str(e)
 
 
-class OnlineScoreRequest:
+class AllArgsMetaclass(type):
+
+    def __new__(cls, name, bases, dct):
+        attr_required = tuple(name for name, value in dct.items() if not name.startswith('__') and not name.endswith('_func') and value.required)
+        attr_none_required = tuple(name for name, value in dct.items() if not name.startswith('__') and not name.endswith('_func') and not value.required)
+        dct['attr_req'] = attr_required
+        dct['attr_non_req'] = attr_none_required
+        return type.__new__(cls, name, bases, dct)
+
+
+class OnlineScoreRequest(metaclass=AllArgsMetaclass):
     """Класс для обработки запросов OnlineScore"""
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
@@ -179,22 +200,19 @@ class OnlineScoreRequest:
     phone = PhoneField(required=False, nullable=True)
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
-    error = None
-    ALL_ARGUMENTS = ['first_name', 'last_name', 'email', 'phone', 'birthday', 'gender']
 
     def __init__(self, arguments: dict):
         try:
-            self.first_name = arguments.get('first_name')
-            self.last_name = arguments.get('last_name')
-            self.email = arguments.get('email')
-            self.phone = arguments.get('phone')
-            self.birthday = arguments.get('birthday')
-            self.gender = arguments.get('gender')
-            self.has = self.create_has(arguments)
+            for arg in self.attr_req:
+                self.__setattr__(arg, arguments[arg])
+            for arg in self.attr_non_req:
+                self.__setattr__(arg, arguments.get(arg))
+            self.has = self.create_has_func(arguments)
+            self.error = None
         except Exception as e:
             self.error = str(e)
 
-    def validate_args(self) -> bool:
+    def validate_args_func(self) -> bool:
         """Определение валидности запроса"""
         if self.phone and self.email:
             return True
@@ -204,48 +222,90 @@ class OnlineScoreRequest:
             return True
         return False
 
-    def create_has(self, arguments: dict) -> list:
+    def create_has_func(self, arguments: dict) -> list:
         """Фиксация ненулевых данных в запросе"""
         has = []
-        for arg in self.ALL_ARGUMENTS:
+        for arg in self.attr_req + self.attr_non_req:
             if arg in arguments:
                 has.append(arg)
         return has
 
 
-class MethodRequest:
+class MethodRequest(metaclass=AllArgsMetaclass):
     """Класс для обработки шапки запроса"""
+
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
     arguments = ArgumentsField(required=True, nullable=True)
     method = CharField(required=True, nullable=False)
-    error = None
 
     def __init__(self, request):
         try:
-            self.account = request['body'].get('account')
-            self.login = request['body']['login']
-            self.token = request['body']['token']
-            self.arguments = request['body']['arguments']
-            self.method = request['body']['method']
+            for arg in self.attr_req:
+                self.__setattr__(arg, request['body'][arg])
+            for arg in self.attr_non_req:
+                self.__setattr__(arg, request['body'].get(arg))
+            self.error = None
         except Exception as e:
             self.error = str(e)
 
     @property
-    def is_admin(self):
+    def is_admin_func(self):
         return self.login == ADMIN_LOGIN
 
 
 def check_auth(request: MethodRequest) -> bool:
     """Функция по аутентификации пользователя"""
-    if request.is_admin:
+    if request.is_admin_func:
         digest = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode('utf-8')).hexdigest()
     else:
         digest = hashlib.sha512((request.account + request.login + SALT).encode('utf-8')).hexdigest()
     if digest == request.token:
         return True
     return False
+
+
+def online_scor_handler(request: MethodRequest, ctx: dict, store) -> tuple:
+    """Обработка запроса с подсчетом скор-балла"""
+    online_score = OnlineScoreRequest(request.arguments)
+    if online_score.error is not None:
+        code = 422
+        response = online_score.error
+    elif not online_score.validate_args_func():
+        code = 422
+        response = 'Not enough data in arguments'
+    else:
+        ctx['has'] = online_score.has
+        if request.is_admin_func:
+            code = 200
+            response = {"score": 42}
+        else:
+            scor = scoring.get_score(
+                store=store,
+                phone=online_score.phone,
+                email=online_score.email,
+                birthday=online_score.birthday,
+                gender=online_score.gender,
+                first_name=online_score.first_name,
+                last_name=online_score.last_name,
+            )
+            code = 200
+            response = dict(score=scor)
+    return code, response
+
+
+def clients_interests_handler(request: MethodRequest, ctx: dict, store) -> tuple:
+    """Обработка запроса для получения данных о клиенте"""
+    clients_interest = ClientsInterestsRequest(request.arguments)
+    if clients_interest.error is not None:
+        code = 422
+        response = clients_interest.error
+    else:
+        ctx['nclients'] = len(clients_interest.client_ids)
+        code = 200
+        response = {i: scoring.get_interests(store, i) for i in clients_interest.client_ids}
+    return code, response
 
 
 def method_handler(request: dict, ctx: dict, store) -> tuple:
@@ -259,39 +319,9 @@ def method_handler(request: dict, ctx: dict, store) -> tuple:
         code = 403
         response = ERRORS[code]
     elif request.method == 'online_score':
-        online_score = OnlineScoreRequest(request.arguments)
-        if online_score.error is not None:
-            code = 422
-            response = online_score.error
-        elif not online_score.validate_args():
-            code = 422
-            response = 'Not enough data in arguments'
-        else:
-            ctx['has'] = online_score.has
-            if request.is_admin:
-                code = 200
-                response = {"score": 42}
-            else:
-                scor = scoring.get_score(
-                    store=store,
-                    phone=online_score.phone,
-                    email=online_score.email,
-                    birthday=online_score.birthday,
-                    gender=online_score.gender,
-                    first_name=online_score.first_name,
-                    last_name=online_score.last_name,
-                )
-                code = 200
-                response = dict(score=scor)
+        code, response = online_scor_handler(request, ctx, store)
     elif request.method == 'clients_interests':
-        clients_interest = ClientsInterestsRequest(request.arguments)
-        if clients_interest.error is not None:
-            code = 422
-            response = clients_interest.error
-        else:
-            ctx['nclients'] = len(clients_interest.client_ids)
-            code = 200
-            response = {i: scoring.get_interests(store, i) for i in clients_interest.client_ids}
+        code, response = clients_interests_handler(request, ctx, store)
     return response, code
 
 

@@ -66,30 +66,30 @@ def valid_auth_for_admin():
 def test_invalid_char():
     value = api.CharField(required=True, nullable=False)
     value.name = 'chr'
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, 123)
 
 
 def test_invalid_argument_field():
     value = api.ArgumentsField(required=True, nullable=False)
     value.name = 'argument'
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, 123)
 
 
 def test_invalid_email_field():
     value = api.EmailField(required=True, nullable=False)
     value.name = 'email'
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, '123123.ru')
 
 
 def test_invalid_phone_field():
     value = api.PhoneField(required=True, nullable=False)
     value.name = 'phone'
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, '89111231212')
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, '7911123121212')
 
 
@@ -105,25 +105,25 @@ def test_invalid_birthday():
     value.name = 'birthday'
     with pytest.raises(ValueError):
         value.__set__(value, '2020.12.12')
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, '01.01.1900')
 
 
 def test_invalid_gender():
     value = api.GenderField(required=True, nullable=False)
     value.name = 'gender'
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, 4)
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, 'str')
 
 
 def test_invalid_clients_id():
     value = api.ClientIDsField(required=True)
     value.name = 'cid'
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, {1, 2, 3})
-    with pytest.raises(ValueError):
+    with pytest.raises(api.ValidationError):
         value.__set__(value, [1, '2', 3])
 
 
